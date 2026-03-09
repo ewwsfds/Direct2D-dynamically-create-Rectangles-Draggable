@@ -6,10 +6,9 @@
 
 #include <d2d1.h>                 // *** DIRECT2D ADDED ***
 #pragma comment(lib, "d2d1.lib")  // *** DIRECT2D ADDED ***
-
 #define MAX_LOADSTRING 100
+#include <vector>
 
-// Global Variables:
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
@@ -20,17 +19,43 @@ ID2D1HwndRenderTarget* pRenderTarget = nullptr;
 ID2D1SolidColorBrush* pBrush = nullptr;
 
 
-// *** DIRECT2D ADDED: Rectangle position ***
-float rectX = 100.0f;
-float rectY = 100.0f;
-float rectWidth = 200.0f;
-float rectHeight = 200.0f;
 
+
+
+
+
+
+
+
+struct MyRect
+{
+    float x, y;       // Top-left position
+    float width, height;
+    D2D1_COLOR_F color; // Color
+
+    // Helper function to get D2D rectangle
+    D2D1_RECT_F getRectF() const
+    {
+        return D2D1::RectF(x, y, x + width, y + height);
+    }
+
+    // Helper function to check if point is inside
+    bool contains(float px, float py) const
+    {
+        return px >= x && px <= x + width &&
+            py >= y && py <= y + height;
+    }
+};
+
+
+
+// In your globals
+std::vector<MyRect> rectangles;
 
 // Dragging state
-bool dragging = false;
-float dragOffsetX = 0.0f;
-float dragOffsetY = 0.0f;
+int draggingIndex = -1;
+float dragOffsetX = 0;
+float dragOffsetY = 0;
 
 
 // Forward declarations
@@ -132,49 +157,70 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             D2D1::ColorF(D2D1::ColorF::DeepSkyBlue),
             &pBrush
         );
+
+
+        // --- Initialize rectangles here ---
+        rectangles.push_back({ 800, 100, 200, 200, D2D1::ColorF(D2D1::ColorF::Red) });
+        rectangles.push_back({ 100, 100, 200, 200, D2D1::ColorF(D2D1::ColorF::DeepSkyBlue) });
     }
     break;
 
     case WM_LBUTTONDOWN:
     {
-        int mouseX = LOWORD(lParam);
-        int mouseY = HIWORD(lParam);
+        int mx = LOWORD(lParam);
+        int my = HIWORD(lParam);
 
-        // Check if mouse is inside the rectangle
-        if (mouseX >= rectX && mouseX <= rectX + rectWidth &&
-            mouseY >= rectY && mouseY <= rectY + rectHeight)
+        // Loop over rectangles in reverse to select top-most first
+        for (int i = rectangles.size() - 1; i >= 0; --i)
         {
-            dragging = true;
-            // Store offset between mouse and rectangle top-left
-            dragOffsetX = mouseX - rectX;
-            dragOffsetY = mouseY - rectY;
-            SetCapture(hWnd); // Capture mouse even if outside window
+            if (rectangles[i].contains(mx, my))
+            {
+                draggingIndex = i;
+                dragOffsetX = mx - rectangles[i].x;
+                dragOffsetY = my - rectangles[i].y;
+                SetCapture(hWnd);
+                break;
+            }
         }
     }
     break;
 
     case WM_MOUSEMOVE:
     {
-        if (dragging)
+        if (draggingIndex != -1)
         {
-            int mouseX = LOWORD(lParam);
-            int mouseY = HIWORD(lParam);
-
-            // Move rectangle with mouse, keeping offset
-            rectX = mouseX - dragOffsetX;
-            rectY = mouseY - dragOffsetY;
-
-            InvalidateRect(hWnd, nullptr, FALSE); // Redraw
+            int mx = LOWORD(lParam);
+            int my = HIWORD(lParam);
+            rectangles[draggingIndex].x = mx - dragOffsetX;
+            rectangles[draggingIndex].y = my - dragOffsetY;
+            InvalidateRect(hWnd, nullptr, FALSE);
         }
     }
     break;
 
     case WM_LBUTTONUP:
     {
-        if (dragging)
+        if (draggingIndex != -1)
         {
-            dragging = false;
-            ReleaseCapture(); // Stop capturing the mouse
+            draggingIndex = -1;
+            ReleaseCapture();
+        }
+    }
+    break;
+
+    case WM_KEYDOWN: // dynamically create new rectangles
+    {
+        switch (wParam)
+        {
+        case 'N':  // Press 'N' to add a new rectangle
+        {
+            // Add a new rectangle at (50,50), size 100x100, green
+            rectangles.push_back({ 50, 50, 100, 100, D2D1::ColorF(D2D1::ColorF::LimeGreen) });
+
+            // Force repaint
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        break;
         }
     }
     break;
@@ -205,8 +251,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         pRenderTarget->BeginDraw();
         pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::Black));
 
-        D2D1_RECT_F rect = D2D1::RectF(rectX, rectY, rectX + rectWidth, rectY + rectHeight);
-        pRenderTarget->FillRectangle(rect, pBrush);
+
+
+        for (auto& r : rectangles)
+        {
+            pBrush->SetColor(r.color);
+            pRenderTarget->FillRectangle(r.getRectF(), pBrush);
+        }
 
         pRenderTarget->EndDraw();
         EndPaint(hWnd, &ps);
